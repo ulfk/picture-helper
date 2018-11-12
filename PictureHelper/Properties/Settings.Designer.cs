@@ -25,10 +25,19 @@ namespace PictureHelper.Properties {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("D:\\temp")]
+        [global::System.Configuration.DefaultSettingValueAttribute("D:\\Temp\\dest")]
         public string TargetDir {
             get {
                 return ((string)(this["TargetDir"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("D:\\Temp\\dest\\unknown")]
+        public string TargetDirUnknownDate {
+            get {
+                return ((string)(this["TargetDirUnknownDate"]));
             }
         }
     }

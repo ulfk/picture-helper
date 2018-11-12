@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Drawing;
 
 namespace PictureHelper
 {
@@ -7,6 +8,8 @@ namespace PictureHelper
         public string Filename { get; set; }
 
         public DateTime DateTaken { get; set; }
+
+        public Image Image { get; set; }
 
         public bool DateTakenValid { get; set; }
     }

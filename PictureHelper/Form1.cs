@@ -1,10 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Windows.Forms;
 using PictureHelper.Properties;
 
@@ -14,23 +11,49 @@ namespace PictureHelper
     {
         private readonly List<FileInfo> _fileList = new List<FileInfo>();
         private readonly string _targetDir = Settings.Default.TargetDir;
+        private readonly string _targetDirUnknownDate = Settings.Default.TargetDirUnknownDate;
+
+        private bool _DropIsEnabled = true;
+
         private const int DeleteKey = 0x2E;
+
+        private readonly PictureWorker _pictureWorker;
 
         public Form1()
         {
             InitializeComponent();
-            CheckTargetDirExists();
+            var directoriesValid = CheckTargetDirectoriesExist();
+            if (directoriesValid)
+            {
+                _pictureWorker = new PictureWorker(_targetDir, _targetDirUnknownDate, Log, UpdateProgress, CopyingFinished);
+            }
         }
 
-        private void Log(string text, bool isError = false)
+        public void Log(string text, bool isError = false)
         {
-            textBoxOutput.AppendText($"{(isError ? "ERROR" : "INFO ")} - {text}{Environment.NewLine}");
+            InvokeIfRequired(textBoxOutput, (MethodInvoker)delegate
+            {
+                textBoxOutput.AppendText($"{(isError ? "ERROR" : "INFO ")} - {text}{Environment.NewLine}");
+            });
         }
 
         private void Form1_DragDrop(object sender, DragEventArgs e)
         {
+            EnableDisableUI(false);
             var files = (string[])e.Data.GetData(DataFormats.FileDrop);
             AddNewFiles(files);
+            ResetProgress();
+            EnableDisableUI(true);
+        }
+
+        private void EnableDisableUI(bool enable)
+        {
+            InvokeIfRequired(this, (MethodInvoker)delegate
+            {
+                buttonExecCopyAndSort.Enabled = enable;
+                buttonClearList.Enabled = enable;
+            });
+            _DropIsEnabled = enable;
         }
 
         private void AddNewFiles(IEnumerable<string> files)
@@ -44,15 +67,11 @@ namespace PictureHelper
                 }
                 try
                 {
-                    var image = Image.FromFile(file);
-                    var dateAvailable = GetDateTaken(image.PropertyItems, out var dateTaken);
-                    imageList.Images.Add(image);
-                    var item = new ListViewItem();
-                    item.ImageIndex = imageList.Images.Count - 1;
-                    item.Text = dateAvailable ? dateTaken.ToString("yyyy-MM-dd") : "DATUM FEHLT";
-                    item.Name = file;
+                    var fileListItem = _pictureWorker.ReadImage(file, imageList.ImageSize.Width, imageList.ImageSize.Height);
+                    imageList.Images.Add(fileListItem.Image);
+                    var item = CreateListViewItem(imageList.Images.Count - 1, fileListItem);
                     fileListView.Items.Add(item);
-                    _fileList.Add(new FileInfo { Filename = file, DateTaken = dateTaken, DateTakenValid = dateAvailable });
+                    _fileList.Add(fileListItem);
                     Log($"Datei hinzugefügt: {file}");
                 }
                 catch (Exception ex)
@@ -62,60 +81,39 @@ namespace PictureHelper
             }
         }
 
+        private ListViewItem CreateListViewItem(int imageIndex, FileInfo fileInfoItem)
+        {
+            return new ListViewItem
+            {
+                ImageIndex = imageIndex,
+                Text = fileInfoItem.DateTakenValid
+                    ? fileInfoItem.DateTaken.ToString("yyyy-MM-dd")
+                    : "DATUM FEHLT",
+                Name = fileInfoItem.Filename,
+                ToolTipText = fileInfoItem.Filename
+            };
+        }
+
         private void Clear()
         {
             _fileList.Clear();
-            fileListView.Items.Clear();
-            imageList.Images.Clear();
-            textBoxOutput.Text = string.Empty;
-        }
-
-        //private void LogImageProperties(PropertyItem[] imagePropertyItems)
-        //{
-        //    //.Where(p => DateTakenIds.Concat(p.Id)
-        //    foreach (var prop in imagePropertyItems)
-        //    {
-        //        string value = "";
-        //        switch (prop.Type)
-        //        {
-        //            case 2:
-        //                value = Encoding.ASCII.GetString(TrimByteArray(prop.Value, prop.Len));
-        //                break;
-        //        }
-        //        Log($"  {prop.Id:X}  {prop.Type}  {prop.Len}  {value}");
-        //    }
-        //}
-
-        private readonly int[] _dateTakenIds = {0x9003,0x9004};
-
-        private bool GetDateTaken(PropertyItem[] imagePropertyItems, out DateTime dateTaken)
-        {
-            dateTaken = DateTime.Now;
-            var prop = imagePropertyItems.FirstOrDefault(p => _dateTakenIds.Contains(p.Id) && p.Type == 2);
-            if (prop != null)
+            InvokeIfRequired(fileListView, (MethodInvoker)delegate ()
             {
-                var dateStr = Encoding.ASCII.GetString(TrimByteArray(prop.Value, prop.Len));
-                // Erwarteter String: 2012:04:28 17:46:41
-                var year = int.Parse(dateStr.Substring(0, 4));
-                var month = int.Parse(dateStr.Substring(5, 2));
-                var day = int.Parse(dateStr.Substring(8, 2));
-                dateTaken = new DateTime(year, month, day);
-                return true;
-            }
-
-            return false;
-        }
-
-        private byte[] TrimByteArray(byte[] bytes, int length)
-        {
-            return bytes?.Where((b,i) => i< length && b >= 32 && b <= 127).ToArray();
+                fileListView.Items.Clear();
+            });
+            imageList.Images.Clear();
+            //textBoxOutput.Text = string.Empty;
         }
 
         private void Form1_DragEnter(object sender, DragEventArgs e)
         {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            if (_DropIsEnabled && e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 e.Effect = DragDropEffects.Copy;
+            }
+            else
+            {
+                e.Effect = DragDropEffects.None;
             }
         }
 
@@ -126,46 +124,108 @@ namespace PictureHelper
 
         private void buttonExecCopyAndSort_Click(object sender, EventArgs e)
         {
-            foreach (var fileInfo in _fileList)
+            EnableDisableUI(false);
+            _pictureWorker.StartCopyFiles(_fileList);
+        }
+
+        public void CopyingFinished(List<string> skippedFiles)
+        {
+            var filesToCopy = _fileList.Count;
+            var filesSkipped = skippedFiles.Count;
+            Clear();
+            if (filesSkipped > 0)
             {
-                //TODO:
-                // check if directory for month exists:
-                //    if not, create directory for month
-                // copy file to month-directory
+                ResetProgress();
+                InvokeIfRequired(progressBarFileCopy, (MethodInvoker)delegate
+                {
+                    AddNewFiles(skippedFiles);
+                });
+                Log($"{(filesToCopy - filesSkipped)} Dateien kopiert, {filesSkipped} übersprungen. Siehe vorherige Ausgaben für Details");
             }
+            else
+            {
+                Log($"{filesToCopy} Dateien kopiert.");
+            }
+            EnableDisableUI(true);
+        }
+
+        public void UpdateProgress(int maxCount, int currentCount)
+        {
+            InvokeIfRequired(progressBarFileCopy, (MethodInvoker)delegate
+            {
+                progressBarFileCopy.Minimum = 0;
+                progressBarFileCopy.Maximum = maxCount;
+                progressBarFileCopy.Value = currentCount;
+            });
+        }
+
+        private void InvokeIfRequired(Control target, Delegate methodToInvoke)
+        {
+            if (target.InvokeRequired)
+            {
+                target.Invoke(methodToInvoke);
+            }
+            else
+            {
+                methodToInvoke.DynamicInvoke();
+            }
+        }
+
+        private void ResetProgress()
+        {
+            InvokeIfRequired(progressBarFileCopy, (MethodInvoker)delegate
+            {
+                progressBarFileCopy.Value = 0;
+            });
         }
 
         private void fileListView_KeyUp(object sender, KeyEventArgs e)
         {
             if (e.KeyValue == DeleteKey)
             {
-                var indexList = new List<int>();
-                var nameList = new List<string>();
-                for (var idx = 0; idx < fileListView.SelectedItems.Count; idx++)
-                {
-                    var entry = fileListView.SelectedItems[idx];
-                    indexList.Add(entry.ImageIndex);
-                    nameList.Add(entry.Name);
-                    fileListView.Items.Remove(entry);
-                    Log($"Bild '{entry.Name}' aus der Liste entfernt.");
-                }
-
-                indexList.OrderByDescending(i => i).ToList()
-                    .ForEach(i => imageList.Images.RemoveAt(i));
-                _fileList.RemoveAll(f => nameList.Contains(f.Filename));
+                RemoveSelectedFilesFromList();
             }
         }
 
-        private void CheckTargetDirExists()
+        private void RemoveSelectedFilesFromList()
         {
-            if (Directory.Exists(_targetDir))
+            var indexList = new List<int>();
+            var nameList = new List<string>();
+            for (var idx = 0; idx < fileListView.SelectedItems.Count; idx++)
             {
-                Log($"Zielverzeichnis:  {_targetDir}");
+                var entry = fileListView.SelectedItems[idx];
+                indexList.Add(entry.ImageIndex);
+                nameList.Add(entry.Name);
+                fileListView.Items.Remove(entry);
+                Log($"Bild '{entry.Name}' aus der Liste entfernt.");
+            }
+
+            indexList.OrderByDescending(i => i).ToList()
+                .ForEach(i => imageList.Images.RemoveAt(i));
+            _fileList.RemoveAll(f => nameList.Contains(f.Filename));
+        }
+
+        private bool CheckTargetDirectoriesExist()
+        {
+            var directoriesValid = DirectoryExists(_targetDir) && DirectoryExists(_targetDirUnknownDate);
+            buttonExecCopyAndSort.Enabled = directoriesValid;
+            _DropIsEnabled = directoriesValid;
+            return directoriesValid;
+        }
+
+        private bool DirectoryExists(string dir)
+        {
+            var exists = Directory.Exists(dir);
+            if (exists)
+            {
+                Log($"Verzeichnis existiert:  {dir}");
             }
             else
             {
-                Log($"Zielverzeichnis wurde NICHT gefunden:  {_targetDir}", true);
+                Log($"Verzeichnis wurde NICHT gefunden:  {dir}", true);
             }
+
+            return exists;
         }
     }
 }
