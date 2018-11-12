@@ -13,7 +13,7 @@ namespace PictureHelper
         private readonly string _targetDir = Settings.Default.TargetDir;
         private readonly string _targetDirUnknownDate = Settings.Default.TargetDirUnknownDate;
 
-        private bool _DropIsEnabled = true;
+        private bool _dropIsEnabled = true;
 
         private const int DeleteKey = 0x2E;
 
@@ -39,26 +39,26 @@ namespace PictureHelper
 
         private void Form1_DragDrop(object sender, DragEventArgs e)
         {
-            EnableDisableUI(false);
+            EnableDisableUi(false);
             var files = (string[])e.Data.GetData(DataFormats.FileDrop);
             AddNewFiles(files);
             ResetProgress();
-            EnableDisableUI(true);
+            EnableDisableUi(true);
         }
 
-        private void EnableDisableUI(bool enable)
+        private void EnableDisableUi(bool enable)
         {
             InvokeIfRequired(this, (MethodInvoker)delegate
             {
                 buttonExecCopyAndSort.Enabled = enable;
                 buttonClearList.Enabled = enable;
             });
-            _DropIsEnabled = enable;
+            _dropIsEnabled = enable;
         }
 
         private void AddNewFiles(IEnumerable<string> files)
         {
-            EnableDisableUI(false);
+            EnableDisableUi(false);
 
             // skip already added files
             var filesToRead = new List<string>();
@@ -76,7 +76,7 @@ namespace PictureHelper
                 filesToRead, 
                 imageList.ImageSize.Width, 
                 imageList.ImageSize.Height,
-                () => EnableDisableUI(true));
+                () => EnableDisableUi(true));
         }
 
         public void ImageAdded(FileInfo fileInfo)
@@ -85,9 +85,10 @@ namespace PictureHelper
             {
                 try
                 {
-                    imageList.Images.Add(fileInfo.Image);
-                    var item = CreateListViewItem(imageList.Images.Count - 1, fileInfo);
+                    var item = CreateListViewItem(fileInfo);
+                    imageList.Images.Add(item.ImageKey, fileInfo.Image);
                     fileListView.Items.Add(item);
+                    fileInfo.ImageKey = item.ImageKey;
                     _fileList.Add(fileInfo);
                     Log($"Datei zur Liste hinzugefügt: {fileInfo.Filename}");
                 }
@@ -98,11 +99,11 @@ namespace PictureHelper
             });
         }
 
-        private ListViewItem CreateListViewItem(int imageIndex, FileInfo fileInfoItem)
+        private ListViewItem CreateListViewItem(FileInfo fileInfoItem)
         {
             return new ListViewItem
             {
-                ImageIndex = imageIndex,
+                ImageKey = Guid.NewGuid().ToString(),
                 Text = fileInfoItem.DateTakenValid
                     ? fileInfoItem.DateTaken.ToString("yyyy-MM-dd")
                     : "DATUM FEHLT",
@@ -124,7 +125,7 @@ namespace PictureHelper
 
         private void Form1_DragEnter(object sender, DragEventArgs e)
         {
-            if (_DropIsEnabled && e.Data.GetDataPresent(DataFormats.FileDrop))
+            if (_dropIsEnabled && e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 e.Effect = DragDropEffects.Copy;
             }
@@ -141,7 +142,7 @@ namespace PictureHelper
 
         private void buttonExecCopyAndSort_Click(object sender, EventArgs e)
         {
-            EnableDisableUI(false);
+            EnableDisableUi(false);
             _pictureWorker.StartCopyFiles(_fileList, CopyingFinished);
         }
 
@@ -163,7 +164,7 @@ namespace PictureHelper
             {
                 Log($"{filesToCopy} Dateien kopiert.");
             }
-            EnableDisableUI(true);
+            EnableDisableUi(true);
         }
 
         public void UpdateProgress(int maxCount, int currentCount)
@@ -206,27 +207,31 @@ namespace PictureHelper
 
         private void RemoveSelectedFilesFromList()
         {
-            var indexList = new List<int>();
-            var nameList = new List<string>();
-            for (var idx = 0; idx < fileListView.SelectedItems.Count; idx++)
+            if (fileListView.SelectedItems.Count == 0)
             {
-                var entry = fileListView.SelectedItems[idx];
-                indexList.Add(entry.ImageIndex);
-                nameList.Add(entry.Name);
-                fileListView.Items.Remove(entry);
-                Log($"Bild '{entry.Name}' aus der Liste entfernt.");
+                return;
             }
 
-            indexList.OrderByDescending(i => i).ToList()
-                .ForEach(i => imageList.Images.RemoveAt(i));
-            _fileList.RemoveAll(f => nameList.Contains(f.Filename));
+            foreach (ListViewItem selectedItem in fileListView.SelectedItems)
+            {
+                fileListView.Items.Remove(selectedItem);
+                // only delete when no longer in use:
+                var key = selectedItem.ImageKey;
+                if (fileListView.Items.Cast<ListViewItem>().All(x => x.ImageKey != key))
+                {
+                    imageList.Images.RemoveByKey(key);
+                }
+
+                _fileList.RemoveAll(f => f.ImageKey == key);
+                Log($"Datei aus Liste entfernt: '{selectedItem.Name}'");
+            }
         }
 
         private bool CheckTargetDirectoriesExist()
         {
             var directoriesValid = DirectoryExists(_targetDir) && DirectoryExists(_targetDirUnknownDate);
             buttonExecCopyAndSort.Enabled = directoriesValid;
-            _DropIsEnabled = directoriesValid;
+            _dropIsEnabled = directoriesValid;
             return directoriesValid;
         }
 

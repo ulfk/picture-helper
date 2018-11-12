@@ -40,15 +40,15 @@ namespace PictureHelper
             Task.Run(() => CopyFiles(copyingFinishedFunc));
         }
 
-        public void ReadImages(List<string> filenames, int with, int height, Action readingFinished)
+        public void ReadImages(List<string> fileNames, int with, int height, Action readingFinished)
         {
-            Task.Run(() => ReadImageWorker(filenames, with, height, readingFinished));
+            Task.Run(() => ReadImageWorker(fileNames, with, height, readingFinished));
         }
 
-        public void ReadImageWorker(List<string> filenames, int with, int height, Action readingFinished)
+        public void ReadImageWorker(List<string> fileNames, int with, int height, Action readingFinished)
         {
             var count = 0;
-            foreach (var filename in filenames)
+            foreach (var filename in fileNames)
             {
                 try
                 {
@@ -70,56 +70,51 @@ namespace PictureHelper
                     Log($"Fehler beim Lesen der Datei '{filename}': {ex.Message}");
                 }
 
-                _updateProgressFunc(filenames.Count, ++count);
+                _updateProgressFunc(fileNames.Count, ++count);
             }
 
             readingFinished();
         }
 
-        private Image ResizeImage(Image imgPhoto, int Width, int Height)
+        private Image ResizeImage(Image image, int width, int height)
         {
-            int sourceWidth = imgPhoto.Width;
-            int sourceHeight = imgPhoto.Height;
-            int sourceX = 0;
-            int sourceY = 0;
-            int destX = 0;
-            int destY = 0;
+            var sourceWidth = image.Width;
+            var sourceHeight = image.Height;
+            var destX = 0;
+            var destY = 0;
+            float ratio;
 
-            float nPercent;
-
-            var nPercentW = ((float)Width / (float)sourceWidth);
-            var nPercentH = ((float)Height / (float)sourceHeight);
-            if (nPercentH < nPercentW)
+            var ratioWidth = ((float)width / (float)sourceWidth);
+            var ratioHeight = ((float)height / (float)sourceHeight);
+            if (ratioHeight < ratioWidth)
             {
-                nPercent = nPercentH;
-                destX = Convert.ToInt32((Width - (sourceWidth * nPercent)) / 2);
+                ratio = ratioHeight;
+                destX = Convert.ToInt32((width - (sourceWidth * ratio)) / 2);
             }
             else
             {
-                nPercent = nPercentW;
-                destY = Convert.ToInt32((Height - (sourceHeight * nPercent)) / 2);
+                ratio = ratioWidth;
+                destY = Convert.ToInt32((height - (sourceHeight * ratio)) / 2);
             }
 
-            var destWidth = (int)(sourceWidth * nPercent);
-            var destHeight = (int)(sourceHeight * nPercent);
+            var destWidth = (int)(sourceWidth * ratio);
+            var destHeight = (int)(sourceHeight * ratio);
 
-            Bitmap bmPhoto = new Bitmap(Width, Height,
-                PixelFormat.Format24bppRgb);
-            bmPhoto.SetResolution(imgPhoto.HorizontalResolution,
-                imgPhoto.VerticalResolution);
+            var bitmap = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+            bitmap.SetResolution(image.HorizontalResolution, image.VerticalResolution);
 
-            Graphics grPhoto = Graphics.FromImage(bmPhoto);
-            grPhoto.Clear(Color.White);
-            grPhoto.InterpolationMode =
-                InterpolationMode.HighQualityBicubic;
+            using (var graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.Clear(Color.White);
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
 
-            grPhoto.DrawImage(imgPhoto,
-                new Rectangle(destX, destY, destWidth, destHeight),
-                new Rectangle(sourceX, sourceY, sourceWidth, sourceHeight),
-                GraphicsUnit.Pixel);
+                graphics.DrawImage(image,
+                    new Rectangle(destX, destY, destWidth, destHeight),
+                    new Rectangle(0, 0, sourceWidth, sourceHeight),
+                    GraphicsUnit.Pixel);
+            }
 
-            grPhoto.Dispose();
-            return bmPhoto;
+            return bitmap;
         }
 
         private readonly int[] _dateTakenIds = { 0x9003, 0x9004 };
@@ -131,7 +126,7 @@ namespace PictureHelper
             if (prop != null)
             {
                 var dateStr = Encoding.ASCII.GetString(TrimByteArray(prop.Value, prop.Len));
-                // Erwarteter String: 2012:04:28 17:46:41
+                // Expected String: 2012:04:28 17:46:41
                 if (dateStr.Length < 19)
                 {
                     Log($"Ungültiges Aufnahmedatum: '{dateStr}'");
@@ -139,14 +134,6 @@ namespace PictureHelper
                 }
 
                 dateTaken = DateTime.ParseExact(dateStr, "yyyy:MM:dd HH:mm:ss", CultureInfo.InvariantCulture);
-
-                //var year = int.Parse(dateStr.Substring(0, 4));
-                //var month = int.Parse(dateStr.Substring(5, 2));
-                //var day = int.Parse(dateStr.Substring(8, 2));
-                //var hour = int.Parse(dateStr.Substring(11, 2));
-                //var min = int.Parse(dateStr.Substring(14, 2));
-                //var sec = int.Parse(dateStr.Substring(17, 2));
-                //dateTaken = new DateTime(year, month, day, hour, min, sec);
                 return true;
             }
 
@@ -190,7 +177,7 @@ namespace PictureHelper
                 {
                     if (File.Exists(destFileName))
                     {
-                        Log($"Bild existiert bereits:  '{destFileName}'");
+                        Log($"Ziel-Datei existiert bereits:  '{destFileName}'");
                         skippedFiles.Add(fileInfo.Filename);
                         continue;
                     }

@@ -12,5 +12,7 @@ namespace PictureHelper
         public Image Image { get; set; }
 
         public bool DateTakenValid { get; set; }
+
+        public string ImageKey { get; set; }
     }
 }
