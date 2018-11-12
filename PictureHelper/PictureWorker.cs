@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -16,7 +17,7 @@ namespace PictureHelper
         private readonly string _targetDirUnknownDate;
         private readonly Action<string, bool> _logFunc;
         private readonly Action<int, int> _updateProgressFunc;
-        private readonly Action<List<string>> _copyFinishedFunc;
+        private readonly Action<FileInfo> _imageAddedFunc;
         private List<FileInfo> _fileList;
 
         public PictureWorker(
@@ -24,29 +25,55 @@ namespace PictureHelper
             string targetDirUnknownDate, 
             Action<string, bool> logFunc, 
             Action<int, int> updateProgressFunc, 
-            Action<List<string>> copyFinishedFunc)
+            Action<FileInfo> imageAddedFunc)
         {
             _targetDir = targetDir;
             _targetDirUnknownDate = targetDirUnknownDate;
             _logFunc = logFunc;
             _updateProgressFunc = updateProgressFunc;
-            _copyFinishedFunc = copyFinishedFunc;
+            _imageAddedFunc = imageAddedFunc;
         }
 
-        public void StartCopyFiles(List<FileInfo> fileList)
+        public void StartCopyFiles(List<FileInfo> fileList, Action<List<string>> copyingFinishedFunc)
         {
             _fileList = fileList;
-            Task.Run((Action)CopyFiles);
+            Task.Run(() => CopyFiles(copyingFinishedFunc));
         }
 
-        public FileInfo ReadImage(string filename, int with, int height)
+        public void ReadImages(List<string> filenames, int with, int height, Action readingFinished)
         {
-            var image = Image.FromFile(filename);
-            var dateAvailable = GetDateTaken(image.PropertyItems, out var dateTaken);
-            //TODO resize image to display size, rotate if needed, preserve aspect ratio
-            var resizedImage = ResizeImage(image, with, height);
-            image.Dispose();
-            return new FileInfo{DateTaken = dateTaken, DateTakenValid = dateAvailable, Filename = filename, Image = resizedImage };
+            Task.Run(() => ReadImageWorker(filenames, with, height, readingFinished));
+        }
+
+        public void ReadImageWorker(List<string> filenames, int with, int height, Action readingFinished)
+        {
+            var count = 0;
+            foreach (var filename in filenames)
+            {
+                try
+                {
+                    var image = Image.FromFile(filename);
+                    var dateAvailable = GetDateTaken(image.PropertyItems, out var dateTaken);
+                    var resizedImage = ResizeImage(image, with, height);
+                    image.Dispose();
+                    var fileInfo = new FileInfo
+                    {
+                        DateTaken = dateTaken,
+                        DateTakenValid = dateAvailable,
+                        Filename = filename,
+                        Image = resizedImage
+                    };
+                    _imageAddedFunc(fileInfo);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Fehler beim Lesen der Datei '{filename}': {ex.Message}");
+                }
+
+                _updateProgressFunc(filenames.Count, ++count);
+            }
+
+            readingFinished();
         }
 
         private Image ResizeImage(Image imgPhoto, int Width, int Height)
@@ -111,13 +138,15 @@ namespace PictureHelper
                     return false;
                 }
 
-                var year = int.Parse(dateStr.Substring(0, 4));
-                var month = int.Parse(dateStr.Substring(5, 2));
-                var day = int.Parse(dateStr.Substring(8, 2));
-                var hour = int.Parse(dateStr.Substring(11, 2));
-                var min = int.Parse(dateStr.Substring(14, 2));
-                var sec = int.Parse(dateStr.Substring(17, 2));
-                dateTaken = new DateTime(year, month, day, hour, min, sec);
+                dateTaken = DateTime.ParseExact(dateStr, "yyyy:MM:dd HH:mm:ss", CultureInfo.InvariantCulture);
+
+                //var year = int.Parse(dateStr.Substring(0, 4));
+                //var month = int.Parse(dateStr.Substring(5, 2));
+                //var day = int.Parse(dateStr.Substring(8, 2));
+                //var hour = int.Parse(dateStr.Substring(11, 2));
+                //var min = int.Parse(dateStr.Substring(14, 2));
+                //var sec = int.Parse(dateStr.Substring(17, 2));
+                //dateTaken = new DateTime(year, month, day, hour, min, sec);
                 return true;
             }
 
@@ -150,7 +179,7 @@ namespace PictureHelper
             _logFunc(text, isError);
         }
 
-        private void CopyFiles()
+        private void CopyFiles(Action<List<string>> copyFinishedFunc)
         {
             var skippedFiles = new List<string>();
             var count = 0;
@@ -176,7 +205,7 @@ namespace PictureHelper
                 _updateProgressFunc(_fileList.Count, ++count);
             }
 
-            _copyFinishedFunc(skippedFiles);
+            copyFinishedFunc(skippedFiles);
         }
         
         private string CreateDestFileName(FileInfo fileInfo)

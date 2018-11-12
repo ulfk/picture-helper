@@ -25,7 +25,7 @@ namespace PictureHelper
             var directoriesValid = CheckTargetDirectoriesExist();
             if (directoriesValid)
             {
-                _pictureWorker = new PictureWorker(_targetDir, _targetDirUnknownDate, Log, UpdateProgress, CopyingFinished);
+                _pictureWorker = new PictureWorker(_targetDir, _targetDirUnknownDate, Log, UpdateProgress, ImageAdded);
             }
         }
 
@@ -58,6 +58,10 @@ namespace PictureHelper
 
         private void AddNewFiles(IEnumerable<string> files)
         {
+            EnableDisableUI(false);
+
+            // skip already added files
+            var filesToRead = new List<string>();
             foreach (var file in files)
             {
                 if (_fileList.Any(f => f.Filename == file))
@@ -65,20 +69,33 @@ namespace PictureHelper
                     Log($"Bild bereits in der Liste: '{file}'");
                     continue;
                 }
+                filesToRead.Add(file);
+            }
+
+            _pictureWorker.ReadImages(
+                filesToRead, 
+                imageList.ImageSize.Width, 
+                imageList.ImageSize.Height,
+                () => EnableDisableUI(true));
+        }
+
+        public void ImageAdded(FileInfo fileInfo)
+        {
+            InvokeIfRequired(this, (MethodInvoker)delegate ()
+            {
                 try
                 {
-                    var fileListItem = _pictureWorker.ReadImage(file, imageList.ImageSize.Width, imageList.ImageSize.Height);
-                    imageList.Images.Add(fileListItem.Image);
-                    var item = CreateListViewItem(imageList.Images.Count - 1, fileListItem);
+                    imageList.Images.Add(fileInfo.Image);
+                    var item = CreateListViewItem(imageList.Images.Count - 1, fileInfo);
                     fileListView.Items.Add(item);
-                    _fileList.Add(fileListItem);
-                    Log($"Datei hinzugefügt: {file}");
+                    _fileList.Add(fileInfo);
+                    Log($"Datei zur Liste hinzugefügt: {fileInfo.Filename}");
                 }
                 catch (Exception ex)
                 {
-                    Log($"Fehler bei Verarbeitung der Datei '{file}': {ex.Message}", true);
+                    Log($"Fehler beim Verarbeiten der Datei '{fileInfo.Filename}': {ex.Message}", true);
                 }
-            }
+            });
         }
 
         private ListViewItem CreateListViewItem(int imageIndex, FileInfo fileInfoItem)
@@ -125,7 +142,7 @@ namespace PictureHelper
         private void buttonExecCopyAndSort_Click(object sender, EventArgs e)
         {
             EnableDisableUI(false);
-            _pictureWorker.StartCopyFiles(_fileList);
+            _pictureWorker.StartCopyFiles(_fileList, CopyingFinished);
         }
 
         public void CopyingFinished(List<string> skippedFiles)
