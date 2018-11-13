@@ -221,7 +221,7 @@ namespace PictureHelper
             {
                 fileListView.Items.Remove(selectedItem);
                 var key = selectedItem.ImageKey;
-                // only delete when no longer in use:
+                // only delete when no longer in use
                 if (fileListView.Items.Cast<ListViewItem>().All(x => x.ImageKey != key))
                 {
                     imageList.Images.RemoveByKey(key);
