@@ -16,7 +16,7 @@ namespace PictureHelper
         private readonly string _targetDir;
         private readonly string _targetDirUnknownDate;
         private readonly Action<string, bool> _logFunc;
-        private readonly Action<int, int> _updateProgressFunc;
+        private readonly Action<int> _updateProgressFunc;
         private readonly Action<FileInfo> _imageAddedFunc;
         private List<FileInfo> _fileList;
 
@@ -24,7 +24,7 @@ namespace PictureHelper
             string targetDir, 
             string targetDirUnknownDate, 
             Action<string, bool> logFunc, 
-            Action<int, int> updateProgressFunc, 
+            Action<int> updateProgressFunc, 
             Action<FileInfo> imageAddedFunc)
         {
             _targetDir = targetDir;
@@ -47,30 +47,31 @@ namespace PictureHelper
 
         public void ReadImageWorker(List<string> fileNames, int with, int height, Action readingFinished)
         {
-            var count = 0;
+            var fileCounter = 0;
             foreach (var filename in fileNames)
             {
                 try
                 {
-                    var image = Image.FromFile(filename);
-                    var dateAvailable = GetDateTaken(image.PropertyItems, out var dateTaken);
-                    var resizedImage = ResizeImage(image, with, height);
-                    image.Dispose();
-                    var fileInfo = new FileInfo
+                    using (var image = Image.FromFile(filename))
                     {
-                        DateTaken = dateTaken,
-                        DateTakenValid = dateAvailable,
-                        Filename = filename,
-                        Image = resizedImage
-                    };
-                    _imageAddedFunc(fileInfo);
+                        var dateAvailable = GetDateTaken(image.PropertyItems, out var dateTaken);
+                        var resizedImage = ResizeImage(image, with, height);
+                        var fileInfo = new FileInfo
+                        {
+                            DateTaken = dateTaken,
+                            DateTakenValid = dateAvailable,
+                            Filename = filename,
+                            Image = resizedImage
+                        };
+                        _imageAddedFunc(fileInfo);
+                    }
                 }
                 catch (Exception ex)
                 {
                     Log($"Fehler beim Lesen der Datei '{filename}': {ex.Message}");
                 }
 
-                _updateProgressFunc(fileNames.Count, ++count);
+                _updateProgressFunc(++fileCounter);
             }
 
             readingFinished();
@@ -123,21 +124,21 @@ namespace PictureHelper
         {
             dateTaken = DateTime.Now;
             var prop = imagePropertyItems.FirstOrDefault(p => _dateTakenIds.Contains(p.Id) && p.Type == 2);
-            if (prop != null)
+            if (prop == null)
             {
-                var dateStr = Encoding.ASCII.GetString(TrimByteArray(prop.Value, prop.Len));
-                // Expected String: 2012:04:28 17:46:41
-                if (dateStr.Length < 19)
-                {
-                    Log($"Ungültiges Aufnahmedatum: '{dateStr}'");
-                    return false;
-                }
-
-                dateTaken = DateTime.ParseExact(dateStr, "yyyy:MM:dd HH:mm:ss", CultureInfo.InvariantCulture);
-                return true;
+                return false;
             }
 
-            return false;
+            var dateStr = Encoding.ASCII.GetString(TrimByteArray(prop.Value, prop.Len));
+            // Expecting string like this:  2012:04:28 17:46:41
+            if (dateStr.Length < 19)
+            {
+                Log($"Ungültiges Aufnahmedatum: '{dateStr}'");
+                return false;
+            }
+
+            dateTaken = DateTime.ParseExact(dateStr, "yyyy:MM:dd HH:mm:ss", CultureInfo.InvariantCulture);
+            return true;
         }
 
         private byte[] TrimByteArray(byte[] bytes, int length)
@@ -169,7 +170,7 @@ namespace PictureHelper
         private void CopyFiles(Action<List<string>> copyFinishedFunc)
         {
             var skippedFiles = new List<string>();
-            var count = 0;
+            var fileCounter = 0;
             foreach (var fileInfo in _fileList)
             {
                 var destFileName = CreateDestFileName(fileInfo);
@@ -189,7 +190,7 @@ namespace PictureHelper
                     Log($"Fehler beim Kopieren von '{fileInfo.Filename}' nach '{destFileName}': {ex.Message}");
                 }
 
-                _updateProgressFunc(_fileList.Count, ++count);
+                _updateProgressFunc(++fileCounter);
             }
 
             copyFinishedFunc(skippedFiles);

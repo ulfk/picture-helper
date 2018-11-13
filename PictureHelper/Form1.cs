@@ -72,6 +72,7 @@ namespace PictureHelper
                 filesToRead.Add(file);
             }
 
+            InitProgress(filesToRead.Count);
             _pictureWorker.ReadImages(
                 filesToRead, 
                 imageList.ImageSize.Width, 
@@ -81,7 +82,7 @@ namespace PictureHelper
 
         public void ImageAdded(FileInfo fileInfo)
         {
-            InvokeIfRequired(this, (MethodInvoker)delegate ()
+            InvokeIfRequired(this, (MethodInvoker)delegate
             {
                 try
                 {
@@ -115,12 +116,11 @@ namespace PictureHelper
         private void Clear()
         {
             _fileList.Clear();
-            InvokeIfRequired(fileListView, (MethodInvoker)delegate ()
+            InvokeIfRequired(fileListView, (MethodInvoker)delegate
             {
                 fileListView.Items.Clear();
             });
             imageList.Images.Clear();
-            //textBoxOutput.Text = string.Empty;
         }
 
         private void Form1_DragEnter(object sender, DragEventArgs e)
@@ -143,6 +143,7 @@ namespace PictureHelper
         private void buttonExecCopyAndSort_Click(object sender, EventArgs e)
         {
             EnableDisableUi(false);
+            InitProgress(_fileList.Count);
             _pictureWorker.StartCopyFiles(_fileList, CopyingFinished);
         }
 
@@ -167,12 +168,16 @@ namespace PictureHelper
             EnableDisableUi(true);
         }
 
-        public void UpdateProgress(int maxCount, int currentCount)
+        private void InitProgress(int maxCount)
+        {
+            progressBarFileCopy.Minimum = 0;
+            progressBarFileCopy.Maximum = maxCount;
+        }
+
+        public void UpdateProgress(int currentCount)
         {
             InvokeIfRequired(progressBarFileCopy, (MethodInvoker)delegate
             {
-                progressBarFileCopy.Minimum = 0;
-                progressBarFileCopy.Maximum = maxCount;
                 progressBarFileCopy.Value = currentCount;
             });
         }
@@ -215,8 +220,8 @@ namespace PictureHelper
             foreach (ListViewItem selectedItem in fileListView.SelectedItems)
             {
                 fileListView.Items.Remove(selectedItem);
-                // only delete when no longer in use:
                 var key = selectedItem.ImageKey;
+                // only delete when no longer in use:
                 if (fileListView.Items.Cast<ListViewItem>().All(x => x.ImageKey != key))
                 {
                     imageList.Images.RemoveByKey(key);
