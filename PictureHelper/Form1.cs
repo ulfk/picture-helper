@@ -142,6 +142,11 @@ namespace PictureHelper
 
         private void buttonExecCopyAndSort_Click(object sender, EventArgs e)
         {
+            if (_fileList.Count == 0)
+            {
+                Log("Nichts zu tun. Ziehe Bilder per Drag&Drop in dieses Programm um sie dann einzusortieren.");
+                return;
+            }
             EnableDisableUi(false);
             InitProgress(_fileList.Count);
             _pictureWorker.StartCopyFiles(_fileList, CopyingFinished);
